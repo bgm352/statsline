@@ -16,7 +16,7 @@ supabase = (
     else None
 )
 
-# Page Configuration
+# Page Configuration & Browser Tab Title
 st.set_page_config(
     page_title="Statsline | Arbitrage Terminal",
     page_icon="⚾",
