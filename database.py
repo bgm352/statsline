@@ -1,6 +1,9 @@
+import os
 import sqlite3
 
-DB_NAME = "armor_os.db"
+# Define absolute path to the project directory
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_NAME = os.path.join(BASE_DIR, "armor_os.db")
 
 
 def init_db():
@@ -29,8 +32,7 @@ def save_candidate(item):
   try:
     cursor.execute(
         """
-            INSERT OR IGNORE INTO candidates (item_id, title, price, url,"
-        " image_url)
+            INSERT OR IGNORE INTO candidates (item_id, title, price, url, image_url)
             VALUES (?, ?, ?, ?, ?)
         """,
         (
@@ -50,4 +52,4 @@ def save_candidate(item):
 
 if __name__ == "__main__":
   init_db()
-  print("Database initialized successfully.")
+  print(f"Database initialized at: {DB_NAME}")
