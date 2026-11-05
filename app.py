@@ -19,7 +19,7 @@ supabase = (
 # Page Configuration
 st.set_page_config(
     page_title="Statsline | Arbitrage Terminal",
-    page_icon="📈",
+    page_icon="⚾",
     layout="wide",
 )
 
@@ -81,7 +81,7 @@ def update_status(item_id, new_status):
 # --- MAIN APP INTERFACE ---
 
 if page == "Live Triage Queue":
-  st.title("Statsline Market Intelligence & Triage")
+  st.title("Statsline | Automated Arbitrage Desk")
   st.markdown(
       "Real-time ingested raw listings awaiting automated OpenCV and manual"
       " triage review."
