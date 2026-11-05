@@ -1,0 +1,19 @@
+# Environment variables and sensitive keys
+.env
+
+# Python compilation and cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+env/
+venv/
+
+# Local databases and caches
+armor_os.db
+data/
+
+# Streamlit config and logs
+.streamlit/
+*.log
