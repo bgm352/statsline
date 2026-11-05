@@ -4,3 +4,4 @@ opencv-python-headless
 numpy
 python-dotenv
 pandas
+psycopg2-binary
