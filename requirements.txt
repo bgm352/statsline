@@ -1,7 +1,8 @@
 streamlit
-requests
 opencv-python-headless
-numpy
+supabase
 python-dotenv
+requests
+numpy
 pandas
-psycopg2-binary
+beautifulsoup4
