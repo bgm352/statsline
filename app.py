@@ -1,151 +1,121 @@
-from datetime import datetime
 import os
-from dotenv import load_dotenv
 import streamlit as st
-from supabase import create_client
+from dotenv import load_dotenv
+from supabase import create_client, Client
+from vision_screener import VisionScreener
+from roi_calculator import ROICalculator
 
 # Load environment variables
 load_dotenv()
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-# Initialize Supabase client
-supabase = (
-    create_client(SUPABASE_URL, SUPABASE_KEY)
-    if SUPABASE_URL and SUPABASE_KEY
-    else None
+st.set_page_config(page_title="Statsline | Arbitrage Engine", layout="wide")
+
+@st.cache_resource
+def init_supabase() -> Client | None:
+    if SUPABASE_URL and SUPABASE_KEY:
+        return create_client(SUPABASE_URL, SUPABASE_KEY)
+    return None
+
+supabase = init_supabase()
+screener = VisionScreener(max_ratio=55.0)
+
+# Sidebar Configuration for Global Grading & Fee Assumptions
+st.sidebar.title("Statsline Settings")
+st.sidebar.subheader("Grading & Fee Parameters")
+grading_fee = st.sidebar.number_input("PSA Grading Fee ($)", value=25.0, step=1.0)
+inbound_ship = st.sidebar.number_input("Inbound Shipping ($)", value=4.50, step=0.5)
+return_ship = st.sidebar.number_input("Allocated Return Ship/Ins ($)", value=5.50, step=0.5)
+gem_prob = st.sidebar.slider("Baseline Gem Rate Probability", 0.10, 0.95, 0.65, 0.05)
+
+calculator = ROICalculator(
+    grading_fee=grading_fee,
+    inbound_shipping=inbound_ship,
+    grading_shipping_ins=return_ship
 )
 
-# Page Configuration & Browser Tab Title
-st.set_page_config(
-    page_title="Statsline | Arbitrage Terminal",
-    page_icon="⚾",
-    layout="wide",
-)
+st.title("Statsline: Raw-to-Graded Arbitrage Engine")
+st.markdown("Automated OpenCV 55/45 pre-screening and fee-adjusted Expected Value (EV) triage.")
 
-# Sidebar Navigation & Stats
-st.sidebar.title("Statsline Controls")
-st.sidebar.markdown("---")
-page = st.sidebar.radio(
-    "Navigation", ["Live Triage Queue", "Approved Portfolio", "System Logs"]
-)
+col1, col2 = st.columns([1, 1])
 
-st.sidebar.markdown("---")
-st.sidebar.info(
-    "**System Status:** Online\n\n**Database:** Supabase Synced\n\n**Domain:**"
-    " statsline.com"
-)
+with col1:
+    st.subheader("1. Candidate Input")
+    card_title = st.text_input("Card Title / Player", placeholder="2025 Bowman Chrome Cooper Flagg RC")
+    listing_url = st.text_input("eBay Listing URL", placeholder="https://www.ebay.com/itm/...")
+    image_url = st.text_input("Direct Card Image URL (for OpenCV Check)", placeholder="https://i.ebayimg.com/images/...")
 
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        raw_price = st.number_input("Raw Buy Price ($)", min_value=1.0, value=25.0, step=1.0)
+    with c2:
+        psa10_comp = st.number_input("PSA 10 Comp ($)", min_value=1.0, value=300.0, step=5.0)
+    with c3:
+        psa9_comp = st.number_input("PSA 9 Comp ($)", min_value=0.0, value=85.0, step=5.0)
 
-def load_candidates(status="pending"):
-  """Loads candidate records from Supabase filtered by status."""
-  if not supabase:
-    # Fallback mock data if Supabase keys aren't loaded yet
-    return [
-        {
-            "id": 1,
-            "item_id": "123456789",
-            "title": "2023 Topps Chrome Shohei Ohtani Refractor",
-            "price": 45.00,
-            "url": "https://ebay.com",
-            "image_url": "https://via.placeholder.com/150",
-            "status": "pending",
-        }
-    ]
+    run_analysis = st.button("Run Statsline Triage", type="primary", use_container_width=True)
 
-  try:
-    response = (
-        supabase.table("candidates")
-        .select("*")
-        .eq("status", status)
-        .execute()
-    )
-    return response.data
-  except Exception as e:
-    st.error(f"Error loading from Supabase: {e}")
-    return []
+with col2:
+    st.subheader("2. Triage Verdict & Metrics")
+    if run_analysis:
+        # Run Financial Math
+        roi_data = calculator.evaluate_deal(
+            raw_price=raw_price,
+            psa10_comp=psa10_comp,
+            psa9_comp=psa9_comp,
+            gem_probability=gem_prob
+        )
 
+        # Run OpenCV Centering Check if image URL is provided
+        vision_data = {"status": "skipped", "lr_ratio_str": "N/A", "tb_ratio_str": "N/A", "is_gem_candidate": False}
+        if image_url.strip():
+            with st.spinner("Running OpenCV contour & border analysis..."):
+                vision_data = screener.evaluate_from_url(image_url.strip())
 
-def update_status(item_id, new_status):
-  """Updates the triage status of a candidate item in Supabase."""
-  if not supabase:
-    return
-  try:
-    supabase.table("candidates").update({"status": new_status}).eq(
-        "item_id", item_id
-    ).execute()
-  except Exception as e:
-    st.error(f"Error updating status: {e}")
+        # Display Financial Cards
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("All-In Cost", f"${roi_data['all_in_cost']}")
+        m2.metric("PSA 10 Net Profit", f"${roi_data['psa10_profit']}", f"{roi_data['psa10_roi_pct']}% ROI")
+        m3.metric("PSA 9 Net Profit", f"${roi_data['psa9_profit']}")
+        m4.metric("Expected Value (EV)", f"${roi_data['expected_profit_ev']}", f"{roi_data['expected_roi_pct']}% EV ROI")
 
+        st.divider()
 
-# --- MAIN APP INTERFACE ---
+        # Display OpenCV Vision Results
+        st.markdown("**OpenCV Centering Gate (<= 55/45 Target)**")
+        if vision_data["status"] == "success":
+            v1, v2, v3 = st.columns(3)
+            v1.metric("Left / Right Ratio", vision_data["lr_ratio_str"], "PASS" if vision_data["passes_lr"] else "FAIL")
+            v2.metric("Top / Bottom Ratio", vision_data["tb_ratio_str"], "PASS" if vision_data["passes_tb"] else "FAIL")
+            v3.metric("Vision Gate", "GEM CANDIDATE" if vision_data["is_gem_candidate"] else "REJECT")
+        elif vision_data["status"] == "manual_review_needed":
+            st.warning(f"Manual Slider Check Required: {vision_data['reason']}")
+        elif vision_data["status"] == "error":
+            st.error(f"Image Fetch Error: {vision_data['reason']}")
+        else:
+            st.info("No image URL provided. Financial triage only.")
 
-if page == "Live Triage Queue":
-  st.title("Statsline | Automated Arbitrage Desk")
-  st.markdown(
-      "Real-time ingested raw listings awaiting automated OpenCV and manual"
-      " triage review."
-  )
-  st.markdown("---")
+        if image_url.strip():
+            st.image(image_url, caption="Evaluated Listing Image", width=280)
 
-  candidates = load_candidates("pending")
-
-  if not candidates:
-    st.success(
-        "Queue is clear! Run `python ebay_client.py` to ingest new live"
-        " marketplace listings."
-    )
-  else:
-    for item in candidates:
-      with st.container():
-        col1, col2, col3 = st.columns([1, 3, 1])
-
-        with col1:
-          img_url = item.get("image_url")
-          if img_url:
-            st.image(img_url, width=120)
-          else:
-            st.text("No Image")
-
-        with col2:
-          st.subheader(item.get("title"))
-          st.markdown(f"**Price:** `${item.get('price', 0):.2f}` USD")
-          st.markdown(f"[View Live eBay Listing]({item.get('url')})")
-          st.caption(f"Item ID: {item.get('item_id')}")
-
-        with col3:
-          st.markdown("### Triage Action")
-          if st.button("Approve to Buy", key=f"approve_{item.get('item_id')}"):
-            update_status(item.get("item_id"), "approved")
-            st.rerun()
-
-          if st.button(
-              "Catch & Release", key=f"release_{item.get('item_id')}"
-          ):
-            update_status(item.get("item_id"), "rejected")
-            st.rerun()
-
-        st.markdown("---")
-
-elif page == "Approved Portfolio":
-  st.title("Statsline Approved Inventory")
-  st.markdown("Candidates cleared through triage awaiting acquisition/grading.")
-  st.markdown("---")
-
-  approved_items = load_candidates("approved")
-  if not approved_items:
-    st.info("No items currently approved in portfolio.")
-  else:
-    for item in approved_items:
-      st.write(
-          f"**{item.get('title')}** — `${item.get('price', 0):.2f}` |"
-          f" [Link]({item.get('url')})"
-      )
-
-elif page == "System Logs":
-  st.title("Statsline System Diagnostics")
-  st.markdown("Pipeline execution logs and database sync health.")
-  st.markdown("---")
-  st.text("Supabase connection: ACTIVE")
-  st.text("eBay API OAuth Status: TOKEN VALID")
-  st.text(f"Current System Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        # Save to Supabase Queue
+        if supabase and st.button("Save Target to Supabase Queue"):
+            payload = {
+                "card_title": card_title,
+                "listing_url": listing_url,
+                "image_url": image_url,
+                "raw_price": raw_price,
+                "all_in_cost": roi_data["all_in_cost"],
+                "psa10_comp": psa10_comp,
+                "psa10_profit": roi_data["psa10_profit"],
+                "expected_profit_ev": roi_data["expected_profit_ev"],
+                "lr_centering": vision_data.get("lr_ratio_str", "N/A"),
+                "tb_centering": vision_data.get("tb_ratio_str", "N/A"),
+                "vision_status": vision_data.get("status", "manual")
+            }
+            try:
+                supabase.table("arbitrage_candidates").insert(payload).execute()
+                st.success("Saved to Supabase `arbitrage_candidates` table!")
+            except Exception as e:
+                st.error(f"Database Save Error: {e}")
